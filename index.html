@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>语音转文字</title>
+    <style>
+        #text {
+            width: 98%;
+            height: calc(100vh - 80px);
+        }
+    </style>
+</head>
+
+<body>
+    <a href="#" id="clearBtn">清除</a> <a href="#" id="play">播放</a><br />
+    <textarea id="text"></textarea>
+</body>
+<script src="//code.jquery.com/jquery-2.2.4.min.js"></script>
+<script>
+    var utterThis = new window.SpeechSynthesisUtterance();
+    utterThis.text = '';
+    utterThis.onend = function (x) {
+        console.log(x);
+        setTimeout(play, 300);
+    }
+
+    var dom = document.querySelector('#text');
+    var clearBtn = document.querySelector('#clearBtn');
+    $('#text').val('jQuery插件库为您提供百度、微软等提供的CDN节点地址, 这些CDN公共库为您的应用程序提供稳定、可靠、高速的服务, 包含全球所有最流行的开源JavaScript库。');
+    $('#clearBtn').on('click', function () {
+        $('#text').val('');
+        window.speechSynthesis.stop();
+    });
+    var allText = [];
+    $('#play').on('click', function () {
+        var t = $('#text').val();
+        allText = t.split(/[\n,，。]/);
+        play();
+    });
+
+    function play() {
+        if (allText.length > 0) {
+            var t = allText.shift();
+            utterThis.text = t;
+            window.speechSynthesis.speak(utterThis);
+        }
+    }
+</script>
+</html>
