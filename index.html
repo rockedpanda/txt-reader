@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 
 <head>
     <meta charset="UTF-8">
@@ -7,109 +7,218 @@
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>语音转文字</title>
     <style>
+        body, html{
+            margin:0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+        }
+        #main{
+            width: 100%;
+            height: 100%;
+        }
         #text {
             width: 98%;
             height: calc(100vh - 80px);
+        }
+        a{
+            cursor: pointer;
+        }
+        #curLine{
+            position: fixed;
+            width: 100%;
+            height: 1.6em;
+            bottom: 0;
+            left:0;
+            background-color: #CCC;
+            padding:0 10px;
         }
     </style>
 </head>
 
 <body>
-    <a href="#" id="clearBtn">清除</a> <input type="file" id="txtFile" /><a href="#" id="play">播放</a><br />
-    <textarea id="text"></textarea>
+    <div id="main">
+        <a href="#" id="clearBtn" @click="clearText">重置</a>
+        <input ref="textFile" type="file" id="textFile" v-model="textFile" accept="text/plain" />
+        第<input v-model="pageNumber">页
+        <a href="#" id="play" @click="start">播放</a>
+        <a href="#" v-if="textFile" @click="goPrePage">上一页</a>
+        <a href="#" v-if="textFile" @click="pause">{{playState}}</a>
+        <a href="#" v-if="textFile" @click="goNextPage">下一页</a>
+        <br />
+        <textarea id="text" v-model="text"></textarea>
+        <div id="curLine">{{curLine}}</div>
+    </div>
 </body>
-<script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+<script src="https://cdn.bootcss.com/vue/2.6.10/vue.min.js"></script>
 <script>
-    //简单的消息发布/订阅模式实现
-    var o = $({});
-    $.subscribe = function () {
-        o.on.apply(o, Array.prototype.slice.call(arguments, 0));
+    
+    var player = {
+        utter: null,
+        status:'stop',
+        init: function(){
+            this.utter = new window.SpeechSynthesisUtterance();
+            this.utter.text = '';
+            this.utter.onend = function () {
+                setTimeout(function(){
+                    vm.readOneLine();
+                }, 100);
+            }
+        },
+        speek:function(line){
+            this.utter.text = line;
+            window.speechSynthesis.speak(this.utter);
+        },
+        pause: function(){
+            if(this.status === 'playing'){
+                this.utter.pause();
+            }else{
+                this.utter.resume();
+            }
+        }
     };
-    $.unsubscribe = function () {
-        o.off.apply(o, Array.prototype.slice.call(arguments, 0));
-    };
-    $.publish = function () {
-        o.trigger.apply(o, Array.prototype.slice.call(arguments, 0));
-    };
-</script>
-<script>
-    var utterThis = new window.SpeechSynthesisUtterance();
-    utterThis.text = '';
-    utterThis.onend = function (x) {
-        console.log(x);
-        setTimeout(play, 300);
+    player.init();
+    
+    function checkIsGBK(file){
+        function getFileSize(bolb, encoding){
+            return new Promise(function (resolve, reject) {
+                var reader = new FileReader();
+                reader.onload = function (evt) {
+                    resolve(evt.target.result.length);
+                };
+                reader.readAsText(bolb, encoding);
+            });
+        }
+        return Promise.all([
+            getFileSize(file,'UTF-8'),
+            getFileSize(file,'GBK')
+        ]).then(function(sizes){
+            if(sizes[0] < sizes[1]){
+                return 'UTF-8';
+            }
+            return 'GBK';
+        });
     }
-
    
     var allText = [];
     var PAGE_SIZE = 3000;
     var pageNumber = 0;
     var lastIndex = pageNumber*PAGE_SIZE;
-    $(function(){
-        // var dom = document.querySelector('#text');
-        // var clearBtn = document.querySelector('#clearBtn');
-        
-        $('#text').val('请选择待读取的文本文件');
-        $('#clearBtn').on('click', function () {
-            $('#text').val('');
-            window.speechSynthesis.stop();
+    var vm = null;
+        window.vm = new Vue({
+            el:'#main',
+            data: function(){
+                return {
+                    lastIndex: 0,
+                    text: '请选择待读取的文本文件',
+                    textFile: null,
+                    pageNumber: parseInt(localStorage.getItem('pageNumber') || '0', 10),
+                    PAGE_SIZE: parseInt(localStorage.getItem('PAGE_SIZE') || '3000', 0),
+                    allText: [],
+                    fileEncoding:'UTF-8',
+                    status:'',
+                    curLine:''
+                }
+            },
+            methods: {
+                start:function(){
+                    this.readOnePage();
+                },
+                stop: function(){
+                    this.text = '';
+                    window.speechSynthesis.stop();
+                },
+                pause:function(){
+                    if(this.status !== 'pause'){
+                        this.status = 'pause';
+                    }else{
+                        this.status = '';
+                        this.readOneLine();
+                    }
+                },
+                readOneLine:function(){
+                    if(this.status==='pause'){
+                        return;
+                    }
+                    if (this.allText.length >= 1) {
+                        var t = this.allText.shift();
+                        this.curLine = t.trim();
+                        player.speek(t);
+                    } else {
+                        this.getNextPage();
+                    }
+                },
+                readOnePage: function(){
+                    this.lastIndex = this.pageNumber * this.PAGE_SIZE;
+                    var file = this.$refs.textFile.files;
+                    var t = '';
+                    if (!file) {
+                        t = Promise.resolve('尚未选择文件');
+                    } else {
+                        t = this.readFileContent(file[0], this.fileEncoding, this.lastIndex, this.lastIndex+this.PAGE_SIZE).then(function(lines){
+                            vm.lastIndex = vm.end;
+                            vm.pageNumber = vm.pageNumber+1;
+                            localStorage.setItem('pageNumber', vm.pageNumber);
+                            return lines;
+                        });
+                    }
+                    t.then(function (txt) {
+                        vm.text = txt;
+                        vm.allText = txt.split(/[\n,，。]/);
+                        vm.readOneLine();
+                    });
+                },
+                clearText:function(){
+                    this.stop();
+                    this.pageNumber = 0;
+                },
+                getNextPage:function(){
+                    this.readOnePage();
+                },
+                readFileContent: function (file, encoding, start, end) {
+                    encoding = encoding||this.fileEncoding;
+                    start = start || this.lastIndex;
+                    end = end ||(this.lastIndex + this.PAGE_SIZE);
+                    return new Promise(function (resolve, reject) {
+                        var reader = new FileReader();
+                        reader.onload = function (evt) {
+                            resolve(evt.target.result);
+                        };
+                        reader.readAsText(file.slice(start, end), encoding);
+                    });
+                },
+                goNextPage:function(){
+                    this.readOnePage();
+                },
+                goPrePage:function(){
+                    this.pageNumber = this.pageNumber -2;
+                    this.readOnePage();
+                }
+            },
+            computed: {
+                playState: function(){
+                    return this.status==='pause'?'播放':'暂停';
+                }
+            },
+            watch: {
+                textFile:function(newVal, oldVal){
+                    console.log(newVal, oldVal);
+                    if(!newVal){
+                        return;
+                    }
+                    this.text = "文件识别中...";
+                    checkIsGBK(this.$refs.textFile.files[0].slice(0,1000))
+                    .then(function(fileEncoding){
+                        vm.fileEncoding = fileEncoding;
+                        vm.text = "文件识别完毕,可以点击播放. 文件格式为:"+ fileEncoding;
+                    }).catch(function(err){
+                        console.error(err);
+                    });
+                },
+                pageNumber:function(newVal){
+                    localStorage.setItem('pageNumber', newVal);
+                }
+            },
         });
-        $('#play').on('click', readOnePage);
-        $.subscribe('pageEnd', function(e){
-            var lastLineSize = 0; //allText[0].length;
-            lastIndex -= lastLineSize;
-            readNextPage();
-        });
-    });
-    function readOnePage() {
-            pageNumber = parseInt(localStorage.getItem('pageNumber')||'0', 10);
-            lastIndex = pageNumber * PAGE_SIZE;
-            var file = $('#txtFile')[0].files;
-            var t = '';
-            if (!file) {
-                t = Promise.resolve('尚未选择文件');
-            } else {
-                t = readFileContent(file[0]);
-            }
-            t.then(function (txt) {
-                $('#text').val(txt);
-                allText = txt.split(/[\n,，。]/);
-                play();
-            });
-        }
-        function readNextPage(){
-             readOnePage();
-        }
-
-    function play() {
-        if (allText.length >= 1) {
-            var t = allText.shift();
-            utterThis.text = t;
-            window.speechSynthesis.speak(utterThis);
-        } else if (allText.length === 1) {
-            $.publish('pageEnd');
-            /*var t = allText.shift();
-            utterThis.text = t;
-            window.speechSynthesis.speak(utterThis);*/
-        }else{
-            $.publish('pageEnd');
-        }
-    }
-
-    function readFileContent(file, start, end) {
-        start = start || lastIndex;
-        end = end || start+PAGE_SIZE;
-        return new Promise(function(resolve, reject){
-            var reader = new FileReader();
-            reader.onload = function (evt) {
-                lastIndex = end;
-                pageNumber++;
-                localStorage.setItem('pageNumber', pageNumber);
-                //console.log(evt.target.result);
-                resolve(evt.target.result);
-            };
-            reader.readAsText(file.slice(start, end));
-        });
-    }
 </script>
 </html>
