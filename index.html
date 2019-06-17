@@ -15,10 +15,23 @@
 </head>
 
 <body>
-    <a href="#" id="clearBtn">清除</a> <a href="#" id="play">播放</a><br />
+    <a href="#" id="clearBtn">清除</a> <input type="file" id="txtFile" /><a href="#" id="play">播放</a><br />
     <textarea id="text"></textarea>
 </body>
-<script src="//code.jquery.com/jquery-2.2.4.min.js"></script>
+<script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+<script>
+    //简单的消息发布/订阅模式实现
+    var o = $({});
+    $.subscribe = function () {
+        o.on.apply(o, Array.prototype.slice.call(arguments, 0));
+    };
+    $.unsubscribe = function () {
+        o.off.apply(o, Array.prototype.slice.call(arguments, 0));
+    };
+    $.publish = function () {
+        o.trigger.apply(o, Array.prototype.slice.call(arguments, 0));
+    };
+</script>
 <script>
     var utterThis = new window.SpeechSynthesisUtterance();
     utterThis.text = '';
@@ -27,26 +40,76 @@
         setTimeout(play, 300);
     }
 
-    var dom = document.querySelector('#text');
-    var clearBtn = document.querySelector('#clearBtn');
-    $('#text').val('jQuery插件库为您提供百度、微软等提供的CDN节点地址, 这些CDN公共库为您的应用程序提供稳定、可靠、高速的服务, 包含全球所有最流行的开源JavaScript库。');
-    $('#clearBtn').on('click', function () {
-        $('#text').val('');
-        window.speechSynthesis.stop();
-    });
+   
     var allText = [];
-    $('#play').on('click', function () {
-        var t = $('#text').val();
-        allText = t.split(/[\n,，。]/);
-        play();
+    var PAGE_SIZE = 3000;
+    var pageNumber = 0;
+    var lastIndex = pageNumber*PAGE_SIZE;
+    $(function(){
+        // var dom = document.querySelector('#text');
+        // var clearBtn = document.querySelector('#clearBtn');
+        
+        $('#text').val('请选择待读取的文本文件');
+        $('#clearBtn').on('click', function () {
+            $('#text').val('');
+            window.speechSynthesis.stop();
+        });
+        $('#play').on('click', readOnePage);
+        $.subscribe('pageEnd', function(e){
+            var lastLineSize = 0; //allText[0].length;
+            lastIndex -= lastLineSize;
+            readNextPage();
+        });
     });
+    function readOnePage() {
+            pageNumber = parseInt(localStorage.getItem('pageNumber')||'0', 10);
+            lastIndex = pageNumber * PAGE_SIZE;
+            var file = $('#txtFile')[0].files;
+            var t = '';
+            if (!file) {
+                t = Promise.resolve('尚未选择文件');
+            } else {
+                t = readFileContent(file[0]);
+            }
+            t.then(function (txt) {
+                $('#text').val(txt);
+                allText = txt.split(/[\n,，。]/);
+                play();
+            });
+        }
+        function readNextPage(){
+             readOnePage();
+        }
 
     function play() {
-        if (allText.length > 0) {
+        if (allText.length >= 1) {
             var t = allText.shift();
             utterThis.text = t;
             window.speechSynthesis.speak(utterThis);
+        } else if (allText.length === 1) {
+            $.publish('pageEnd');
+            /*var t = allText.shift();
+            utterThis.text = t;
+            window.speechSynthesis.speak(utterThis);*/
+        }else{
+            $.publish('pageEnd');
         }
+    }
+
+    function readFileContent(file, start, end) {
+        start = start || lastIndex;
+        end = end || start+PAGE_SIZE;
+        return new Promise(function(resolve, reject){
+            var reader = new FileReader();
+            reader.onload = function (evt) {
+                lastIndex = end;
+                pageNumber++;
+                localStorage.setItem('pageNumber', pageNumber);
+                //console.log(evt.target.result);
+                resolve(evt.target.result);
+            };
+            reader.readAsText(file.slice(start, end));
+        });
     }
 </script>
 </html>
