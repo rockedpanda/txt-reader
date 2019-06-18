@@ -50,9 +50,8 @@
         <div id="curLine">{{curLine}}</div>
     </div>
 </body>
-<script src="https://cdn.bootcss.com/vue/2.6.10/vue.min.js"></script>
+<script src="./js/vue.min.js"></script>
 <script>
-    
     var player = {
         utter: null,
         status:'stop',
@@ -187,6 +186,17 @@
                         reader.readAsText(file.slice(start, end), encoding);
                     });
                 },
+                readFileBuffer: function (file, start, end) {
+                    start = start || this.lastIndex;
+                    end = end || (this.lastIndex + this.PAGE_SIZE);
+                    return new Promise(function (resolve, reject) {
+                        var reader = new FileReader();
+                        reader.onload = function (evt) {
+                            resolve(evt.target.result);
+                        };
+                        reader.readAsArrayBuffer(file.slice(start, end));
+                    });
+                },
                 goNextPage:function(){
                     this.readOnePage();
                 },
@@ -220,5 +230,54 @@
                 }
             },
         });
+
+        function parseText(buffer, encoding){
+
+            function ab2str(bf, encoding) {
+                return new Promise(function(resolve, reject){
+                    var b = new Blob([bf]);
+                    var r = new FileReader();
+                    r.onload = function () {
+                        resolve(r.result);
+                    }
+                    r.readAsText(b, encoding);
+                });
+            }
+
+            var leftByte = 0;
+            if(buffer.length<3){
+                //足够短,不需要判定剩余,直接转换即可
+            }else{
+            //计算最后剩余的字节数
+            //如果是GBK,可能剩下0~1个字节;如果是UTF-8,可能剩下0~2个字节(按照常见字,偏僻字等4字节以上字暂不处理)
+                var lastThreeByte = [buffer[buffer.length-3], buffer[buffer.length - 2], buffer[buffer.length - 1]];
+                if(encoding==='GBK'){
+                    if(lastThreeByte[2] < 128 || lastThreeByte[1]>128){
+                        leftByte = 0;
+                    }else{
+                        leftByte = 1;
+                    }
+                }else if(encoding === 'UTF-8'){ //parseInt('11011111',2)===223, parseInt('10111111',2)===191
+                    if(lastThreeByte[2]<128){
+                        leftByte = 0;//最后为单字节字符,不剩余 --- 0xxxxxxx
+                    }else if(lastThreeByte[1]>192 && lastThreeByte[1]<=223){
+                        leftByte = 0;//后两位正好是双字节字符,不剩余 --- 110xxxxx 10xxxxxx
+                    } else if (lastThreeByte[1] >= 224 && lastThreeByte[1] < 239) { //parseInt('11101111',2)===239, parseInt('11100000',2)===224
+                        leftByte = 2; //最后为三字节字符,剩余2字节
+                    }else if(lastThreeByte[0]>= 224 && lastThreeByte[0]<239){
+                        leftByte = 0; //最后为三字节字符,不剩余
+                    }else{
+                        leftByte = 1; //其余均归为剩余1字节
+                    }
+                }
+            }
+        return ab2str(buffer.slice(0, leftByte===0?undefined:-leftByte-1), encoding).then(function(str){
+            return {
+                str: str,
+                leftByte: leftByte,
+                leftArrayBuffer: leftByte===0?[]:buffer.slice(-leftByte)
+            };
+        });
+    }
 </script>
 </html>
