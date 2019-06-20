@@ -79,7 +79,7 @@
             每页文字数量: <input v-model="PAGE_SIZE" /><br/>
             最后访问页码: <input v-model="pageNumber" /><br />
             自动保存上次阅读位置: <input type="checkbox" v-model="autoSavePosition" /><br />
-            自动缓存小文件: 
+            自动缓存小文件: YES
             </div>
         </div>
     </div>
@@ -101,6 +101,7 @@
         },
         speek:function(line){
             if(!line||line.trim()===''){ //空行跳过
+                vm.readOneLine();
                 return;
             }
             this.utter.text = line.trim();
