@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="zh">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <link rel="manifest" href="./manifest.json" />
     <title>语音转文字</title>
     <style>
         body, html{
@@ -33,21 +33,54 @@
             background-color: #CCC;
             padding:0 10px;
         }
+        #setting {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            left: 0;
+            top: 0;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 20px;
+            /* display: none; */
+        }
+        .items{
+            width: 80vw;
+            margin: 8vh 10vw;
+            height: 80vh;
+            background: #FFFFFF;
+        }
+        #curLine > div{
+            position: absolute;
+            right: 0;
+            top: 0;
+            width: 72px;
+            height: 100%;
+        }
     </style>
 </head>
 
 <body>
     <div id="main">
-        <a href="#" id="clearBtn" @click="clearText">重置</a>
+        <a href="#" id="clearBtn" @click="clearText">重置</a> <a href="#" @click="loadCacheContent">加载缓存</a>
         <input ref="textFile" type="file" id="textFile" v-model="textFile" accept="text/plain" />
         第<input v-model="pageNumber">页
         <a href="#" id="play" @click="start">播放</a>
-        <a href="#" v-if="textFile" @click="goPrePage">上一页</a>
-        <a href="#" v-if="textFile" @click="pause">{{playState}}</a>
-        <a href="#" v-if="textFile" @click="goNextPage">下一页</a>
+        <a href="#" v-if="textFile||useCache" @click="goPrePage">上一页</a>
+        <a href="#" v-if="textFile||useCache" @click="pause">{{playState}}</a>
+        <a href="#" v-if="textFile||useCache" @click="goNextPage">下一页</a>
+        <button @click="showSetting=true">设置</button>
         <br />
-        <textarea id="text" v-model="text"></textarea>
-        <div id="curLine">{{curLine}}</div>
+        <textarea id="text" v-model="text" disabled></textarea>
+        <div id="curLine">{{curLine}}<div><span @click="lineMinus5">-5</span> <span @click="lineAdd5">+5</span></div></div>
+        <div id="setting" v-show="showSetting">
+            <div class="items">
+            <div><button @click="showSetting=false">关闭</button></div>
+            每页文字数量: <input v-model="PAGE_SIZE" /><br/>
+            最后访问页码: <input v-model="pageNumber" /><br />
+            自动保存上次阅读位置: <input type="checkbox" v-model="autoSavePosition" /><br />
+            自动缓存小文件: 
+            </div>
+        </div>
     </div>
 </body>
 <script src="./js/vue.min.js"></script>
@@ -60,6 +93,7 @@
             this.utter.text = '';
             this.utter.onend = function () {
                 setTimeout(function(){
+                    console.log('END: ', player.utter.text);
                     vm.readOneLine();
                 }, 100);
             }
@@ -100,23 +134,29 @@
     }
    
     var allText = [];
-    var PAGE_SIZE = 3000;
+    var PAGE_SIZE = 300;
     var pageNumber = 0;
     var lastIndex = pageNumber*PAGE_SIZE;
+    var cachedFileName = localStorage.getItem('cachedFileName');
     var vm = null;
         window.vm = new Vue({
             el:'#main',
             data: function(){
                 return {
                     lastIndex: 0,
-                    text: '请选择待读取的文本文件',
+                    text: '请选择待读取的文本文件，也可以加载缓存文件：'+ cachedFileName,
                     textFile: null,
                     pageNumber: parseInt(localStorage.getItem('pageNumber') || '0', 10),
-                    PAGE_SIZE: parseInt(localStorage.getItem('PAGE_SIZE') || '3000', 0),
+                    PAGE_SIZE: parseInt(localStorage.getItem('PAGE_SIZE') || '300', 0),
                     allText: [],
                     fileEncoding:'UTF-8',
                     status:'',
-                    curLine:''
+                    autoSavePosition: false,
+                    showSetting:false,
+                    curLineIndex: 0,
+                    cachedContent:'',
+                    cachedFileName: cachedFileName,
+                    useCache: false
                 }
             },
             methods: {
@@ -139,10 +179,11 @@
                     if(this.status==='pause'){
                         return;
                     }
-                    if (this.allText.length >= 1) {
-                        var t = this.allText.shift();
-                        this.curLine = t.trim();
-                        player.speek(t);
+                    if (this.curLineIndex<this.allText.length) {
+                        //var t = this.allText.shift();
+                        //this.curLine = t.trim();
+                        this.curLineIndex = this.curLineIndex+1;
+                        player.speek(this.curLine);
                     } else {
                         this.getNextPage();
                     }
@@ -151,7 +192,9 @@
                     this.lastIndex = this.pageNumber * this.PAGE_SIZE;
                     var file = this.$refs.textFile.files;
                     var t = '';
-                    if (!file) {
+                    if(this.useCache){
+                        t =  Promise.resolve(String(this.cachedContent).slice(this.lastIndex, this.lastIndex+this.PAGE_SIZE));
+                    }else if (!file) {
                         t = Promise.resolve('尚未选择文件');
                     } else {
                         t = this.readFileContent(file[0], this.fileEncoding, this.lastIndex, this.lastIndex+this.PAGE_SIZE).then(function(lines){
@@ -164,14 +207,18 @@
                     t.then(function (txt) {
                         vm.text = txt;
                         vm.allText = txt.split(/[\n,，。]/);
+                        vm.curLineIndex = -1;
                         vm.readOneLine();
-                    });
+                    }).catch(function(err){
+                        console.log(err);
+                    }); 
                 },
                 clearText:function(){
                     this.stop();
                     this.pageNumber = 0;
                 },
                 getNextPage:function(){
+                    this.pageNumber = this.pageNumber+1;
                     this.readOnePage();
                 },
                 readFileContent: function (file, encoding, start, end) {
@@ -198,16 +245,42 @@
                     });
                 },
                 goNextPage:function(){
+                    this.pageNumber = this.pageNumber + 1;
                     this.readOnePage();
                 },
                 goPrePage:function(){
-                    this.pageNumber = this.pageNumber -2;
+                    this.pageNumber = this.pageNumber -1;
                     this.readOnePage();
+                },
+                lineMinus5: function(){
+                    this.curLineIndex = Math.max(0, this.curLineIndex-5);
+                },
+                lineAdd5: function() {
+                    this.curLineIndex = Math.min(this.allText.length-1, this.curLineIndex+5);
+                },
+                cacheFile: function(){
+                    var file = this.$refs.textFile.files;
+                    this.readFileContent(file[0], this.fileEncoding, 0, -1)
+                    .then(function (lines) {
+                        vm.cachedContent = lines;
+                        vm.cachedFileName = file[0].name;
+                        localStorage.setItem('cachedFileContent', lines);
+                        localStorage.setItem('cachedFileName', file[0].name);
+                    });
+                },
+                loadCacheContent: function(){
+                    this.cachedFileName = localStorage.getItem('cachedFileName');
+                    this.cachedContent = localStorage.getItem('cachedFileContent');
+                    this.text = "文件文件"+this.cachedFileName+"已加载,可以点击播放";
+                    this.useCache = true;
                 }
             },
             computed: {
                 playState: function(){
                     return this.status==='pause'?'播放':'暂停';
+                },
+                curLine: function(){
+                    return this.allText[this.curLineIndex];
                 }
             },
             watch: {
@@ -217,15 +290,23 @@
                         return;
                     }
                     this.text = "文件识别中...";
+                    this.useCache = false;
                     checkIsGBK(this.$refs.textFile.files[0].slice(0,1000))
                     .then(function(fileEncoding){
                         vm.fileEncoding = fileEncoding;
                         vm.text = "文件识别完毕,可以点击播放. 文件格式为:"+ fileEncoding;
+                        var willCache = true; //window.confirm('是否缓存该文件?'); //强制使用缓存方式
+                        if(willCache){
+                            vm.cacheFile();
+                            vm.text = "文件已缓存,可以点击播放";
+                            vm.useCache = true;
+                        }
                     }).catch(function(err){
                         console.error(err);
                     });
                 },
                 pageNumber:function(newVal){
+                    console.log('changePage To: ', newVal);
                     localStorage.setItem('pageNumber', newVal);
                 }
             },
@@ -277,6 +358,17 @@
                 leftByte: leftByte,
                 leftArrayBuffer: leftByte===0?[]:buffer.slice(-leftByte)
             };
+        });
+    }
+</script>
+<script>
+    if ('serviceWorker' in navigator && window.location.href.startsWith('https:')) {
+        window.addEventListener('load', function () {
+            navigator.serviceWorker.register('service.js')
+                .then(function (registration) { })
+                .catch(function (err) {
+                    console.log(err);
+                });
         });
     }
 </script>
